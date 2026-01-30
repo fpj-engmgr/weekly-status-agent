@@ -1,0 +1,131 @@
+# Weekly Status Report Agent Configuration
+
+# Scheduling Configuration
+schedule:
+  day: "Friday"  # Day of week to generate report
+  time: "17:00"  # Time in 24-hour format
+  timezone: "America/Los_Angeles"
+
+# Gmail Configuration
+gmail:
+  # Labels to monitor (empty list means all emails)
+  labels: ["Work", "Important"]
+  
+  # Exclude emails from these senders (supports wildcards)
+  exclude_senders:
+    - "noreply@"
+    - "notifications@"
+    - "do-not-reply@"
+  
+  # Number of days to look back
+  lookback_days: 7
+  
+  # Include specific senders (optional, overrides general search)
+  include_senders: []
+  
+  # Maximum emails to process
+  max_emails: 100
+
+# Jira Configuration
+jira:
+  # Jira instance URL (set in .env for security)
+  # url: set via JIRA_URL environment variable
+  
+  # Projects to track
+  projects: ["PROJ", "DEV"]
+  
+  # Include epic information
+  include_epics: true
+  
+  # Track sprint progress
+  track_sprints: true
+  
+  # Custom JQL filter (optional, applied in addition to projects)
+  custom_jql: ""
+  
+  # Issue types to include
+  issue_types: ["Story", "Task", "Bug", "Epic"]
+  
+  # Include comments in analysis
+  include_comments: true
+
+# Google Drive Configuration
+gdrive:
+  # Folders to monitor (get IDs from folder URLs)
+  folders:
+    - id: "YOUR_FOLDER_ID_1"
+      name: "Project Documents"
+    - id: "YOUR_FOLDER_ID_2"
+      name: "Team Shared"
+  
+  # File types to include (empty means all)
+  file_types:
+    - "application/vnd.google-apps.document"
+    - "application/vnd.google-apps.spreadsheet"
+    - "application/vnd.google-apps.presentation"
+    - "application/pdf"
+  
+  # Include files shared with you
+  include_shared_with_me: true
+  
+  # Lookback days for file modifications
+  lookback_days: 7
+
+# AI Configuration
+ai:
+  # Provider: "anthropic" or "openai"
+  provider: "anthropic"
+  
+  # Model to use
+  model: "claude-3-5-sonnet-20241022"  # or "gpt-4-turbo-preview"
+  
+  # Temperature (0.0-1.0, lower = more focused)
+  temperature: 0.3
+  
+  # Max tokens for response
+  max_tokens: 4000
+  
+  # Enable advanced analysis features
+  enable_sentiment_analysis: false
+  enable_trend_detection: false
+
+# Report Output Configuration
+output:
+  # Google Drive folder ID for generated reports
+  drive_folder_id: "YOUR_OUTPUT_FOLDER_ID"
+  
+  # Report title format (supports date placeholders)
+  title_format: "Weekly Status Report - {start_date} to {end_date}"
+  
+  # Share report with these email addresses
+  share_with:
+    - "manager@company.com"
+  
+  # Include raw data appendix
+  include_raw_data: false
+  
+  # Generate summary email
+  send_email_notification: true
+  notification_email: "your-email@company.com"
+
+# Database Configuration
+database:
+  # SQLite database path
+  path: "data/tracking.db"
+  
+  # Retain processed items for N days (for deduplication)
+  retention_days: 30
+
+# Logging Configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+  
+  # Log file path
+  file: "logs/agent.log"
+  
+  # Max log file size (MB)
+  max_size_mb: 10
+  
+  # Number of backup log files
+  backup_count: 5

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Label: unique identifier for this job -->
+    <key>Label</key>
+    <string>com.user.weekly-status</string>
+    
+    <!-- Program to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <!-- CHANGE THIS: Path to your Python interpreter -->
+        <string>/Users/fpj/Development/python/weekly-status-agent/venv/bin/python</string>
+        <!-- CHANGE THIS: Path to your main.py -->
+        <string>/Users/fpj/Development/python/weekly-status-agent/src/main.py</string>
+        <string>--config</string>
+        <string>/Users/fpj/Development/python/weekly-status-agent/config/config.yaml</string>
+    </array>
+    
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/fpj/Development/python/weekly-status-agent</string>
+    
+    <!-- Schedule: Run every Friday at 5:00 PM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>5</integer> <!-- 0=Sunday, 1=Monday, ..., 5=Friday -->
+        <key>Hour</key>
+        <integer>17</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <!-- Standard output log -->
+    <key>StandardOutPath</key>
+    <string>/Users/fpj/Development/python/weekly-status-agent/logs/launchd-out.log</string>
+    
+    <!-- Standard error log -->
+    <key>StandardErrorPath</key>
+    <string>/Users/fpj/Development/python/weekly-status-agent/logs/launchd-err.log</string>
+    
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    
+    <!-- Run even if previous run is still active -->
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <!-- Keep the job alive if it exits -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
