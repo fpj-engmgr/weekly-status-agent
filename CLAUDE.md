@@ -117,7 +117,10 @@ Required:
 ### Config Sections (`config/config.yaml`)
 - **schedule**: Day/time for automatic report generation
 - **gmail**: Labels to monitor, senders to include/exclude, lookback period
-- **jira**: Projects to track, custom JQL, sprint/epic settings
+- **jira**: Projects to track, custom JQL, sprint/epic settings, configurable data limits
+  - `max_comments_per_issue`: Number of comments per issue (default: 5)
+  - `max_comment_length`: Character limit per comment (default: 500)
+  - `max_description_length`: Character limit for issue descriptions (default: 1000)
 - **gdrive**: Folder IDs to monitor, file types to include
 - **ai**: Provider (anthropic/openai), model, temperature, max_tokens
 - **output**: Drive folder for reports, sharing recipients
@@ -155,6 +158,9 @@ External APIs → Collectors → Processor → AI Analyzer → Generator → Goo
 - Authentication failures raise descriptive errors with setup instructions
 - API rate limiting should be handled by adjusting config (reduce lookback, add filters)
 - Logs written to `logs/agent.log` with configurable rotation
+- Enhanced error logging with stack traces (`exc_info=True`) for debugging
+- Configuration validation on startup warns about potential issues
+- JQL queries validated for excessive length (>2000 chars)
 
 ### Modular Design
 Each collector/processor/generator can be tested independently. To add a new data source:
@@ -176,9 +182,11 @@ The AI analyzer (`src/ai/summarizer.py`) sends a structured prompt requesting JS
 ### Token Management
 To avoid token overflow, formatters limit items sent to LLM:
 - Emails: First 15 with 150-char snippet
-- Jira issues: First 20 with 1000-char description limit
+- Jira issues: First 20 with configurable description limit (default: 1000 chars)
 - Drive files: First 20
-- Comments: Last 5 per issue, 500 chars each
+- Comments: Configurable count per issue (default: 5) with configurable length (default: 500 chars)
+
+These Jira limits can be adjusted in `config.yaml` under the `jira` section using `max_comments_per_issue`, `max_comment_length`, and `max_description_length`.
 
 ### Response Parsing
 - Expects JSON response from LLM
@@ -250,6 +258,12 @@ AND updated >= 'YYYY-MM-DD' AND updated <= 'YYYY-MM-DD'
 AND issuetype in ("Story", "Task", "Bug", "Epic")
 ORDER BY updated DESC
 ```
+- Validates JQL length (<2000 chars) to prevent server rejections
+- Logs configuration summary on initialization for troubleshooting
+
+**Configuration Validation**:
+- Raises `ValueError` if config is None or empty
+- Warns if no projects, custom_jql, or board_ids are configured (prevents accidental over-collection)
 
 **Pagination**: Uses `_search_issues_paginated()` to fetch all results in chunks
 - Page size: `search_page_size` (default 100, Jira API max)
@@ -263,11 +277,19 @@ ORDER BY updated DESC
 - If `board_ids` specified: Only queries those boards (fast)
 - Otherwise: Queries all visible boards with `maxResults=False`
 - Returns active sprints as metadata item
+- Board names cached to avoid repeated API lookups
 
-**Field Extraction**:
-- Limits description to 1000 chars
+**Field Extraction** (configurable limits):
+- Description: `max_description_length` chars (default: 1000)
+- Comments: Last `max_comments_per_issue` (default: 5), truncated to `max_comment_length` chars (default: 500)
 - Gets parent (epic) information if available
-- Last 5 comments per issue, 500 chars each
+- Robust URL construction with proper trailing slash handling
+
+**Performance Features**:
+- Progress tracking for large collections (logs every 10 items when >20 total)
+- Performance metrics logged: total time, items/sec
+- Board name caching reduces redundant API calls
+- Enhanced error logging with stack traces and issue context (type, board name)
 
 ## Scheduler Implementation
 
@@ -323,12 +345,34 @@ Check logs for collector errors, verify config (labels/projects/folder IDs), ens
 - Increase `max_tokens` if responses are truncated
 
 ### Jira Bulk Changelog Fails
-If bulk changelog returns 404, agent falls back to per-issue `expand=changelog` (slower but works on Jira Server/DC). Check logs for "Bulk changelog fetch failed" message.
+If bulk changelog returns 404, agent falls back to per-issue `expand=changelog` (slower but works on Jira Server/DC). Check logs for "Bulk changelog fetch failed" message with stack trace for detailed error information.
+
+### Slow Jira Collection
+- Check logs for performance metrics: "Successfully collected X items in Y.ZZs (N items/sec)"
+- For large collections, watch for progress messages: "Processing issue X/Y"
+- Board name caching automatically reduces API calls for sprint tracking
+- If collection is slower than expected, consider:
+  - Narrowing JQL with `custom_jql` to reduce result set
+  - Setting `max_issues` to cap collection
+  - Specifying `board_ids` instead of querying all boards
+  - Reducing `max_comments_per_issue` if comment fetching is slow
+
+### Debug Logging
+Enable debug logging (`logging.level: DEBUG` in config) to see:
+- Full configuration summary on startup
+- JQL query validation warnings
+- Stack traces for all errors
+- Board name cache hits/misses
+- Detailed API interaction logs
 
 ## Configuration Best Practices
 
 - **Gmail labels**: Use specific labels rather than querying all mail to reduce API calls
 - **Jira board_ids**: Specify exact board IDs if you know them - avoids querying all boards
+- **Jira data limits**: Adjust `max_comments_per_issue`, `max_comment_length`, and `max_description_length` to balance detail vs. token usage
+  - Increase limits for detailed analysis, decrease for high-volume issue tracking
+  - Check debug logs for configuration summary on startup
 - **Lookback period**: 7 days is optimal; longer periods = more API calls and larger LLM context
 - **Temperature**: 0.3 works well for factual summaries; increase to 0.5-0.7 for more creative analysis
 - **File types**: Limit `gdrive.file_types` to reduce noise in reports
+- **Configuration validation**: Enable debug logging to see configuration summary and catch misconfigurations early

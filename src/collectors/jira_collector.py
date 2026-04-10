@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -26,15 +27,21 @@ class JiraCollector:
     
     def __init__(self, config: dict):
         """Initialize Jira collector.
-        
+
         Args:
             config: Jira configuration from config.yaml
+
+        Raises:
+            ValueError: If config is None or empty
         """
+        if not config:
+            raise ValueError("Jira configuration is required")
+
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.auth_manager = JiraAuthManager()
         self.jira = self.auth_manager.get_jira_client()
-        
+
         self.projects = config.get("projects", [])
         self.include_epics = config.get("include_epics", True)
         self.track_sprints = config.get("track_sprints", True)
@@ -51,6 +58,36 @@ class JiraCollector:
         self.bulk_changelog_chunk_size = max(
             1,
             min(int(raw_chunk), _BULK_CHANGELOG_MAX_ISSUES_PER_REQUEST),
+        )
+
+        # Configurable limits for data extraction
+        self.max_comments_per_issue = config.get("max_comments_per_issue", 5)
+        self.max_comment_length = config.get("max_comment_length", 500)
+        self.max_description_length = config.get("max_description_length", 1000)
+
+        # Board name cache to avoid repeated API calls
+        self._board_name_cache: Dict[int, str] = {}
+
+        # Validate at least one data source is configured
+        if not self.projects and not self.custom_jql and not self.board_ids:
+            self.logger.warning(
+                "No projects, custom_jql, or board_ids configured - "
+                "may collect too many issues or fail to collect any"
+            )
+
+        # Log configuration summary for troubleshooting
+        self.logger.debug(
+            "JiraCollector initialized: projects=%s, issue_types=%s, "
+            "board_ids=%s, max_issues=%s, bulk_changelog=%s, "
+            "max_comments=%s, max_comment_length=%s, max_description_length=%s",
+            self.projects,
+            self.issue_types,
+            self.board_ids,
+            self.max_issues,
+            self.bulk_changelog,
+            self.max_comments_per_issue,
+            self.max_comment_length,
+            self.max_description_length,
         )
     
     def _parse_board_ids(self, raw: Any) -> List[int]:
@@ -72,16 +109,30 @@ class JiraCollector:
     
     def _resolve_board_name(self, board_id: int, board: Any = None) -> str:
         """Human-readable board name; used for sprint metadata in reports."""
+        # Check cache first
+        if board_id in self._board_name_cache:
+            return self._board_name_cache[board_id]
+
+        # Try to get name from provided board object
         if board is not None and getattr(board, "name", None):
-            return board.name
+            name = board.name
+            self._board_name_cache[board_id] = name
+            return name
+
+        # Fetch from API if not in cache
         try:
             from jira.resources import Board
 
             res = Board(self.jira._options, self.jira._session, raw={"id": board_id})
             res.find(board_id)
-            return res.name
-        except Exception:
-            return f"Board {board_id}"
+            name = res.name
+            self._board_name_cache[board_id] = name
+            return name
+        except Exception as e:
+            self.logger.debug("Could not resolve board name for board_id=%s: %s", board_id, e)
+            name = f"Board {board_id}"
+            self._board_name_cache[board_id] = name
+            return name
     
     def _build_jql(self, start_date: datetime, end_date: datetime) -> str:
         """Build JQL query for issues.
@@ -116,7 +167,14 @@ class JiraCollector:
         
         # Order by updated date
         jql = " AND ".join(jql_parts) + " ORDER BY updated DESC"
-        
+
+        # Basic validation
+        if len(jql) > 2000:
+            self.logger.warning(
+                "JQL query is very long (%d chars), may fail or be rejected by Jira server",
+                len(jql)
+            )
+
         return jql
     
     def _status_changes_from_expand_changelog(self, issue) -> List[Dict[str, Any]]:
@@ -136,7 +194,15 @@ class JiraCollector:
                             }
                         )
         except Exception as e:
-            self.logger.debug("Could not get changelog for %s: %s", issue.key, e)
+            issue_type = getattr(getattr(issue, 'fields', None), 'issuetype', None)
+            issue_type_name = getattr(issue_type, 'name', 'unknown') if issue_type else 'unknown'
+            self.logger.debug(
+                "Could not get changelog for issue %s (type: %s): %s",
+                issue.key,
+                issue_type_name,
+                e,
+                exc_info=True
+            )
         return status_changes
     
     def _bulk_changelog_url(self) -> str:
@@ -202,7 +268,11 @@ class JiraCollector:
                         break
             return key_to_changes
         except Exception as e:
-            self.logger.debug("Bulk changelog fetch failed, will fall back per issue: %s", e)
+            self.logger.debug(
+                "Bulk changelog fetch failed, will fall back to per-issue fetching: %s",
+                e,
+                exc_info=True
+            )
             return None
     
     def _extract_issue_data(
@@ -227,10 +297,10 @@ class JiraCollector:
         # Get comments if configured
         comments = []
         if self.include_comments and hasattr(fields, 'comment'):
-            for comment in fields.comment.comments[-5:]:  # Last 5 comments
+            for comment in fields.comment.comments[-self.max_comments_per_issue:]:
                 comments.append({
                     'author': comment.author.displayName,
-                    'body': comment.body[:500],  # Limit comment length
+                    'body': comment.body[:self.max_comment_length],
                     'created': comment.created
                 })
         
@@ -241,13 +311,17 @@ class JiraCollector:
             if hasattr(fields, 'parent') and fields.parent:
                 epic_key = fields.parent.key
                 epic_name = fields.parent.fields.summary
-        except:
-            pass
-        
+        except (AttributeError, Exception) as e:
+            self.logger.debug("Could not extract epic info for %s: %s", issue.key, e)
+
+        # Construct robust issue URL
+        base_url = self.auth_manager.jira_url.rstrip('/')
+        issue_url = f"{base_url}/browse/{issue.key}"
+
         return {
             'key': issue.key,
             'summary': fields.summary,
-            'description': fields.description[:1000] if fields.description else "",
+            'description': fields.description[:self.max_description_length] if fields.description else "",
             'status': fields.status.name,
             'issue_type': fields.issuetype.name,
             'priority': fields.priority.name if hasattr(fields, 'priority') and fields.priority else "None",
@@ -261,7 +335,7 @@ class JiraCollector:
             'epic_name': epic_name,
             'status_changes': status_changes,
             'comments': comments,
-            'url': f"{self.auth_manager.jira_url}/browse/{issue.key}"
+            'url': issue_url
         }
     
     def _get_sprint_info(self) -> List[Dict[str, Any]]:
@@ -293,9 +367,11 @@ class JiraCollector:
                             })
                     except Exception as exc:
                         self.logger.debug(
-                            "Could not get active sprints for board %s: %s",
+                            "Could not get active sprints for board %s (%s): %s",
                             bid,
+                            board_name,
                             exc,
+                            exc_info=True
                         )
             else:
                 boards = self.jira.boards(maxResults=False)
@@ -310,14 +386,18 @@ class JiraCollector:
                                 "board": board.name,
                             })
                     except Exception as exc:
+                        board_name = getattr(board, "name", "unknown")
+                        board_id = getattr(board, "id", "?")
                         self.logger.debug(
-                            "Could not get active sprints for board %s: %s",
-                            getattr(board, "id", "?"),
+                            "Could not get active sprints for board %s (%s): %s",
+                            board_id,
+                            board_name,
                             exc,
+                            exc_info=True
                         )
         except Exception as e:
-            self.logger.debug("Could not get sprint info: %s", e)
-        
+            self.logger.debug("Could not get sprint info: %s", e, exc_info=True)
+
         return sprints
     
     def _search_issues_paginated(self, jql: str) -> List[Any]:
@@ -367,40 +447,47 @@ class JiraCollector:
     
     def collect(self, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
         """Collect Jira issues for the date range.
-        
+
         Args:
             start_date: Start of date range
             end_date: End of date range
-            
+
         Returns:
             List of issue dictionaries
         """
+        start_time = time.time()
         self.logger.info("Starting Jira collection")
-        
+
         try:
             # Build JQL query
             jql = self._build_jql(start_date, end_date)
             self.logger.debug(f"JQL query: {jql}")
-            
+
             issues = self._search_issues_paginated(jql)
-            
+
             self.logger.info(f"Found {len(issues)} issues")
-            
+
             changes_by_key: Optional[Dict[str, List[Dict[str, Any]]]] = None
             if self.bulk_changelog and issues:
                 changes_by_key = self._fetch_status_changes_bulk(issues)
                 if changes_by_key is not None:
                     self.logger.debug("Using bulk changelog for %s issues", len(issues))
-            
+
+            # Process issues with progress tracking
             issue_data = []
-            for issue in issues:
+            total = len(issues)
+            for idx, issue in enumerate(issues, 1):
+                # Log progress for large collections
+                if total > 20 and (idx % 10 == 0 or idx == total):
+                    self.logger.info(f"Processing issue {idx}/{total}")
+
                 precomputed = (
                     changes_by_key.get(issue.key) if changes_by_key is not None else None
                 )
                 data = self._extract_issue_data(issue, status_changes=precomputed)
                 if data:
                     issue_data.append(data)
-            
+
             # Get sprint information
             if self.track_sprints:
                 sprint_info = self._get_sprint_info()
@@ -411,10 +498,16 @@ class JiraCollector:
                         'metadata_type': 'sprints',
                         'sprints': sprint_info
                     })
-            
-            self.logger.info(f"Successfully collected {len(issue_data)} Jira items")
+
+            # Log performance metrics
+            elapsed = time.time() - start_time
+            items_per_sec = len(issue_data) / elapsed if elapsed > 0 else 0
+            self.logger.info(
+                f"Successfully collected {len(issue_data)} items in {elapsed:.2f}s "
+                f"({items_per_sec:.1f} items/sec)"
+            )
             return issue_data
-            
+
         except Exception as e:
-            self.logger.error(f"Error collecting Jira data: {str(e)}")
+            self.logger.error(f"Error collecting Jira data: {str(e)}", exc_info=True)
             return []

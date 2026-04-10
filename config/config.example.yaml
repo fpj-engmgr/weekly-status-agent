@@ -30,8 +30,8 @@ gmail:
 jira:
   # Jira instance URL (set in .env for security)
   # url: set via JIRA_URL environment variable
-  
-  # Projects to track
+
+  # Projects to track (required for focused collection)
   projects: ["PROJ", "DEV"]
   
   # Include epic information
@@ -39,8 +39,12 @@ jira:
   
   # Track sprint progress
   track_sprints: true
-  
-  # Optional: Jira Software board IDs to query for active sprints only (faster than scanning all boards)
+
+  # Optional: Jira Software board IDs to query for active sprints (recommended for performance)
+  # Specifying board IDs:
+  #   - Avoids scanning all visible boards
+  #   - Board names are cached to reduce API calls
+  #   - Much faster for large Jira instances
   # board_ids: [42, 43]
   
   # Custom JQL filter (optional, applied in addition to projects)
@@ -51,7 +55,21 @@ jira:
   
   # Include comments in analysis
   include_comments: true
-  
+
+  # Configurable data limits (helps manage token usage and response size)
+  # Adjust these to balance detail vs. performance:
+  #   - Increase for detailed analysis (more context for AI)
+  #   - Decrease for high-volume tracking (faster collection, lower token usage)
+
+  # Number of recent comments to fetch per issue (default: 5)
+  max_comments_per_issue: 5
+
+  # Character limit for each comment body (default: 500)
+  max_comment_length: 500
+
+  # Character limit for issue descriptions (default: 1000)
+  max_description_length: 1000
+
   # Issues per Jira search request (1–100; Jira caps each page at 100)
   search_page_size: 100
   
@@ -133,6 +151,11 @@ database:
 # Logging Configuration
 logging:
   # Log level: DEBUG, INFO, WARNING, ERROR
+  # Use DEBUG to see:
+  #   - Full configuration summary on startup
+  #   - JQL query validation details
+  #   - Performance metrics and caching info
+  #   - Stack traces for all errors
   level: "INFO"
   
   # Log file path
