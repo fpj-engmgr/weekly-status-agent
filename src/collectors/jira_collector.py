@@ -121,11 +121,9 @@ class JiraCollector:
 
         # Fetch from API if not in cache
         try:
-            from jira.resources import Board
-
-            res = Board(self.jira._options, self.jira._session, raw={"id": board_id})
-            res.find(board_id)
-            name = res.name
+            # Use the official Jira client API to get board info
+            board_obj = self.jira.board(board_id)
+            name = getattr(board_obj, 'name', f"Board {board_id}")
             self._board_name_cache[board_id] = name
             return name
         except Exception as e:
