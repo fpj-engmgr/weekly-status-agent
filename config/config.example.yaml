@@ -40,6 +40,9 @@ jira:
   # Track sprint progress
   track_sprints: true
   
+  # Optional: Jira Software board IDs to query for active sprints only (faster than scanning all boards)
+  # board_ids: [42, 43]
+  
   # Custom JQL filter (optional, applied in addition to projects)
   custom_jql: ""
   
@@ -48,6 +51,17 @@ jira:
   
   # Include comments in analysis
   include_comments: true
+  
+  # Issues per Jira search request (1–100; Jira caps each page at 100)
+  search_page_size: 100
+  
+  # Optional: stop after this many issues (omit or null for no limit)
+  # max_issues: 500
+  
+  # Jira Cloud: batch-fetch status changelogs (fewer API calls). Falls back per issue on Server/DC or errors.
+  bulk_changelog: true
+  # Issues per bulk changelog request (max 1000)
+  bulk_changelog_chunk_size: 1000
 
 # Google Drive Configuration
 gdrive:

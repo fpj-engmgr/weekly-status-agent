@@ -1,10 +1,24 @@
 """Jira data collector."""
 
+import json
 import logging
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from auth import JiraAuthManager
+
+# Fields returned by issue search (changelog is loaded per issue in _extract_issue_data).
+_SEARCH_FIELDS = (
+    "summary,description,status,issuetype,priority,assignee,reporter,"
+    "created,updated,resolution,labels,parent,comment"
+)
+
+# Jira Cloud/Server search API caps maxResults per request (typically 100).
+_MAX_PAGE_SIZE = 100
+
+# Jira Cloud bulk changelog API (POST /rest/api/3/changelog/bulkfetch).
+_BULK_CHANGELOG_MAX_ISSUES_PER_REQUEST = 1000
+_BULK_CHANGELOG_PAGE_MAX = 10000
 
 
 class JiraCollector:
@@ -27,6 +41,47 @@ class JiraCollector:
         self.custom_jql = config.get("custom_jql", "")
         self.issue_types = config.get("issue_types", ["Story", "Task", "Bug", "Epic"])
         self.include_comments = config.get("include_comments", True)
+        raw_page = config.get("search_page_size", _MAX_PAGE_SIZE)
+        self.search_page_size = max(1, min(int(raw_page), _MAX_PAGE_SIZE))
+        max_issues = config.get("max_issues")
+        self.max_issues = int(max_issues) if max_issues is not None else None
+        self.board_ids = self._parse_board_ids(config.get("board_ids"))
+        self.bulk_changelog = config.get("bulk_changelog", True)
+        raw_chunk = config.get("bulk_changelog_chunk_size", _BULK_CHANGELOG_MAX_ISSUES_PER_REQUEST)
+        self.bulk_changelog_chunk_size = max(
+            1,
+            min(int(raw_chunk), _BULK_CHANGELOG_MAX_ISSUES_PER_REQUEST),
+        )
+    
+    def _parse_board_ids(self, raw: Any) -> List[int]:
+        """Coerce config board_ids to a list of unique int IDs (order preserved)."""
+        if not raw:
+            return []
+        out: List[int] = []
+        seen: set[int] = set()
+        for x in raw:
+            try:
+                bid = int(x)
+            except (TypeError, ValueError):
+                self.logger.warning("Ignoring invalid jira.board_ids entry: %r", x)
+                continue
+            if bid not in seen:
+                seen.add(bid)
+                out.append(bid)
+        return out
+    
+    def _resolve_board_name(self, board_id: int, board: Any = None) -> str:
+        """Human-readable board name; used for sprint metadata in reports."""
+        if board is not None and getattr(board, "name", None):
+            return board.name
+        try:
+            from jira.resources import Board
+
+            res = Board(self.jira._options, self.jira._session, raw={"id": board_id})
+            res.find(board_id)
+            return res.name
+        except Exception:
+            return f"Board {board_id}"
     
     def _build_jql(self, start_date: datetime, end_date: datetime) -> str:
         """Build JQL query for issues.
@@ -64,32 +119,110 @@ class JiraCollector:
         
         return jql
     
-    def _extract_issue_data(self, issue) -> Dict[str, Any]:
+    def _status_changes_from_expand_changelog(self, issue) -> List[Dict[str, Any]]:
+        """Load status transitions via GET issue expand=changelog (legacy / Server)."""
+        status_changes: List[Dict[str, Any]] = []
+        try:
+            changelog = self.jira.issue(issue.key, expand="changelog").changelog
+            for history in changelog.histories:
+                for item in history.items:
+                    if item.field == "status":
+                        status_changes.append(
+                            {
+                                "date": history.created,
+                                "from": item.fromString,
+                                "to": item.toString,
+                                "author": history.author.displayName,
+                            }
+                        )
+        except Exception as e:
+            self.logger.debug("Could not get changelog for %s: %s", issue.key, e)
+        return status_changes
+    
+    def _bulk_changelog_url(self) -> str:
+        server = self.jira._options["server"].rstrip("/")
+        return f"{server}/rest/api/3/changelog/bulkfetch"
+    
+    def _fetch_status_changes_bulk(
+        self, issues: List[Any]
+    ) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        """Jira Cloud: fetch status changelog entries for many issues in few API calls."""
+        if not issues:
+            return {}
+        
+        id_to_key: Dict[str, str] = {}
+        for issue in issues:
+            iid = getattr(issue, "id", None)
+            if iid is not None:
+                id_to_key[str(iid)] = issue.key
+        
+        key_to_changes: Dict[str, List[Dict[str, Any]]] = {i.key: [] for i in issues}
+        keys = [i.key for i in issues]
+        url = self._bulk_changelog_url()
+        chunk_size = self.bulk_changelog_chunk_size
+        
+        try:
+            for start in range(0, len(keys), chunk_size):
+                chunk = keys[start : start + chunk_size]
+                next_token: Optional[str] = None
+                while True:
+                    payload: Dict[str, Any] = {
+                        "issueIdsOrKeys": chunk,
+                        "fieldIds": ["status"],
+                        "maxResults": _BULK_CHANGELOG_PAGE_MAX,
+                    }
+                    if next_token:
+                        payload["nextPageToken"] = next_token
+                    r = self.jira._session.post(url, data=json.dumps(payload))
+                    if r.status_code == 404:
+                        return None
+                    r.raise_for_status()
+                    data = r.json()
+                    for icl in data.get("issueChangeLogs") or []:
+                        kid = icl.get("issueId")
+                        key = id_to_key.get(str(kid)) if kid is not None else None
+                        if not key:
+                            continue
+                        for hist in icl.get("changeHistories") or []:
+                            author = (hist.get("author") or {}).get("displayName") or "Unknown"
+                            created = hist.get("created")
+                            for item in hist.get("items") or []:
+                                if item.get("field") != "status" and item.get("fieldId") != "status":
+                                    continue
+                                key_to_changes[key].append(
+                                    {
+                                        "date": created,
+                                        "from": item.get("fromString"),
+                                        "to": item.get("toString"),
+                                        "author": author,
+                                    }
+                                )
+                    next_token = data.get("nextPageToken")
+                    if not next_token:
+                        break
+            return key_to_changes
+        except Exception as e:
+            self.logger.debug("Bulk changelog fetch failed, will fall back per issue: %s", e)
+            return None
+    
+    def _extract_issue_data(
+        self,
+        issue,
+        status_changes: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Extract relevant data from a Jira issue.
         
         Args:
             issue: Jira issue object
+            status_changes: If provided (e.g. from bulk changelog), skip per-issue fetch.
             
         Returns:
             Dictionary with issue data
         """
         fields = issue.fields
         
-        # Get status changes from changelog
-        status_changes = []
-        try:
-            changelog = self.jira.issue(issue.key, expand='changelog').changelog
-            for history in changelog.histories:
-                for item in history.items:
-                    if item.field == 'status':
-                        status_changes.append({
-                            'date': history.created,
-                            'from': item.fromString,
-                            'to': item.toString,
-                            'author': history.author.displayName
-                        })
-        except Exception as e:
-            self.logger.debug(f"Could not get changelog for {issue.key}: {str(e)}")
+        if status_changes is None:
+            status_changes = self._status_changes_from_expand_changelog(issue)
         
         # Get comments if configured
         comments = []
@@ -134,32 +267,103 @@ class JiraCollector:
     def _get_sprint_info(self) -> List[Dict[str, Any]]:
         """Get active sprint information.
         
+        When ``board_ids`` is set in config, only those boards are queried (fast).
+        Otherwise all boards visible to the user are listed (``maxResults=False``
+        so more than the default page of 50 is included).
+
         Returns:
             List of sprint data dictionaries
         """
         if not self.track_sprints:
             return []
         
-        sprints = []
+        sprints: List[Dict[str, Any]] = []
         try:
-            # This requires Jira Software (Agile) API
-            boards = self.jira.boards()
-            for board in boards:
-                try:
-                    active_sprints = self.jira.sprints(board.id, state='active')
-                    for sprint in active_sprints:
-                        sprints.append({
-                            'id': sprint.id,
-                            'name': sprint.name,
-                            'state': sprint.state,
-                            'board': board.name
-                        })
-                except:
-                    continue
+            if self.board_ids:
+                for bid in self.board_ids:
+                    board_name = self._resolve_board_name(bid)
+                    try:
+                        active_sprints = self.jira.sprints(bid, state="active")
+                        for sprint in active_sprints:
+                            sprints.append({
+                                "id": sprint.id,
+                                "name": sprint.name,
+                                "state": sprint.state,
+                                "board": board_name,
+                            })
+                    except Exception as exc:
+                        self.logger.debug(
+                            "Could not get active sprints for board %s: %s",
+                            bid,
+                            exc,
+                        )
+            else:
+                boards = self.jira.boards(maxResults=False)
+                for board in boards:
+                    try:
+                        active_sprints = self.jira.sprints(board.id, state="active")
+                        for sprint in active_sprints:
+                            sprints.append({
+                                "id": sprint.id,
+                                "name": sprint.name,
+                                "state": sprint.state,
+                                "board": board.name,
+                            })
+                    except Exception as exc:
+                        self.logger.debug(
+                            "Could not get active sprints for board %s: %s",
+                            getattr(board, "id", "?"),
+                            exc,
+                        )
         except Exception as e:
-            self.logger.debug(f"Could not get sprint info: {str(e)}")
+            self.logger.debug("Could not get sprint info: %s", e)
         
         return sprints
+    
+    def _search_issues_paginated(self, jql: str) -> List[Any]:
+        """Run JQL search with pagination until all results are fetched or max_issues reached."""
+        collected: List[Any] = []
+        start_at = 0
+        fields = _SEARCH_FIELDS
+        
+        while True:
+            remaining = None
+            if self.max_issues is not None:
+                remaining = self.max_issues - len(collected)
+                if remaining <= 0:
+                    break
+            
+            page_limit = self.search_page_size
+            if remaining is not None:
+                page_limit = min(page_limit, remaining)
+            
+            batch = self.jira.search_issues(
+                jql,
+                startAt=start_at,
+                maxResults=page_limit,
+                fields=fields,
+            )
+            if not batch:
+                break
+            
+            collected.extend(batch)
+            self.logger.debug(
+                "Jira search page: startAt=%s got=%s total_so_far=%s",
+                start_at,
+                len(batch),
+                len(collected),
+            )
+            
+            if self.max_issues is not None and len(collected) >= self.max_issues:
+                collected = collected[: self.max_issues]
+                break
+            
+            if len(batch) < page_limit:
+                break
+            
+            start_at += len(batch)
+        
+        return collected
     
     def collect(self, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
         """Collect Jira issues for the date range.
@@ -178,19 +382,22 @@ class JiraCollector:
             jql = self._build_jql(start_date, end_date)
             self.logger.debug(f"JQL query: {jql}")
             
-            # Search for issues
-            issues = self.jira.search_issues(
-                jql,
-                maxResults=200,  # Adjust as needed
-                fields='summary,description,status,issuetype,priority,assignee,reporter,created,updated,resolution,labels,parent,comment'
-            )
+            issues = self._search_issues_paginated(jql)
             
             self.logger.info(f"Found {len(issues)} issues")
             
-            # Extract data from each issue
+            changes_by_key: Optional[Dict[str, List[Dict[str, Any]]]] = None
+            if self.bulk_changelog and issues:
+                changes_by_key = self._fetch_status_changes_bulk(issues)
+                if changes_by_key is not None:
+                    self.logger.debug("Using bulk changelog for %s issues", len(issues))
+            
             issue_data = []
             for issue in issues:
-                data = self._extract_issue_data(issue)
+                precomputed = (
+                    changes_by_key.get(issue.key) if changes_by_key is not None else None
+                )
+                data = self._extract_issue_data(issue, status_changes=precomputed)
                 if data:
                     issue_data.append(data)
             
