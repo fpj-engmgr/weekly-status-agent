@@ -29,11 +29,27 @@ class AISummarizer:
         if self.provider == "anthropic":
             import anthropic
             api_key = get_env_var("ANTHROPIC_API_KEY", required=True)
-            self.client = anthropic.Anthropic(api_key=api_key)
+            # Support custom base URL for enterprise/proxy setups
+            base_url = get_env_var("ANTHROPIC_API_BASE_URL", required=False)
+            if base_url:
+                self.logger.info(f"Using custom Anthropic endpoint: {base_url}")
+                self.client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            else:
+                self.client = anthropic.Anthropic(api_key=api_key)
         elif self.provider == "openai":
             import openai
             api_key = get_env_var("OPENAI_API_KEY", required=True)
             self.client = openai.OpenAI(api_key=api_key)
+        elif self.provider == "vertex" or self.provider == "vertex-ai":
+            # GCP Vertex AI - access Claude through Google Cloud
+            from anthropic import AnthropicVertex
+            self.gcp_project_id = get_env_var("GCP_PROJECT_ID", required=True)
+            self.gcp_region = get_env_var("GCP_REGION", required=False) or "us-central1"
+            self.logger.info(f"Using Vertex AI - Project: {self.gcp_project_id}, Region: {self.gcp_region}")
+            self.client = AnthropicVertex(
+                project_id=self.gcp_project_id,
+                region=self.gcp_region
+            )
         else:
             raise ValueError(f"Unsupported AI provider: {self.provider}")
     
@@ -278,7 +294,7 @@ Ensure the analysis is insightful, focuses on meaningful work, and helps underst
             prompt = self._build_analysis_prompt(data, start_date, end_date)
             
             # Call LLM
-            if self.provider == "anthropic":
+            if self.provider == "anthropic" or self.provider == "vertex" or self.provider == "vertex-ai":
                 response_text = self._call_anthropic(prompt)
             elif self.provider == "openai":
                 response_text = self._call_openai(prompt)

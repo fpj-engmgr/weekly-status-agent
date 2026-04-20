@@ -128,20 +128,27 @@ class JiraAuthManager:
     
     def get_jira_client(self):
         """Get authenticated Jira client.
-        
+
         Returns:
             Jira client instance
         """
         from jira import JIRA
-        
+
+        # Configure options to use API v3 (required for Jira Cloud)
+        options = {
+            'server': self.jira_url,
+            'rest_api_version': '3'  # Use API v3 instead of deprecated v2
+        }
+
         # Use API token (Jira Cloud)
         if self.jira_api_token:
             return JIRA(
-                server=self.jira_url,
+                options=options,
                 basic_auth=(self.jira_email, self.jira_api_token)
             )
         # Use username/password (Jira Server/DC)
         else:
+            # Server/DC might still use v2, so use default for backward compatibility
             return JIRA(
                 server=self.jira_url,
                 basic_auth=(self.jira_username, self.jira_password)

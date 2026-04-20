@@ -8,10 +8,10 @@ google-auth-httplib2==0.2.0
 google-api-python-client==2.116.0
 
 # Jira
-jira==3.6.0
+jira==3.10.5  # Updated for API v3 /search/jql endpoint support
 
 # AI/LLM
-anthropic==0.18.1
+anthropic[vertex]==0.96.0  # Includes Vertex AI support for GCP
 openai==1.12.0
 
 # Scheduling

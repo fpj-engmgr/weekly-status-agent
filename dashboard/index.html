@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIPCC Development Statistics</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AIPCC Development Statistics</h1>
+            <p class="subtitle">Automated Metrics Dashboard</p>
+            <p class="last-updated" id="lastUpdated">Loading...</p>
+        </header>
+
+        <!-- Summary Cards -->
+        <section class="summary-cards">
+            <div class="card">
+                <h3>Total Issues</h3>
+                <div class="metric-value" id="totalIssues">-</div>
+            </div>
+            <div class="card">
+                <h3>Open Issues</h3>
+                <div class="metric-value" id="openIssues">-</div>
+                <div class="metric-detail" id="openPercentage"></div>
+            </div>
+            <div class="card">
+                <h3>Closed Issues</h3>
+                <div class="metric-value" id="closedIssues">-</div>
+            </div>
+            <div class="card">
+                <h3>Avg Resolution Time</h3>
+                <div class="metric-value" id="avgResolutionTime">-</div>
+                <div class="metric-detail">days</div>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="charts-grid">
+            <!-- Issues Timeline -->
+            <div class="chart-container full-width">
+                <h2>Issues Over Time</h2>
+                <canvas id="timelineChart"></canvas>
+            </div>
+
+            <!-- Status Distribution -->
+            <div class="chart-container">
+                <h2>Status Distribution</h2>
+                <canvas id="statusChart"></canvas>
+            </div>
+
+            <!-- Priority Distribution -->
+            <div class="chart-container">
+                <h2>Priority Distribution</h2>
+                <canvas id="priorityChart"></canvas>
+            </div>
+
+            <!-- Top Packages -->
+            <div class="chart-container full-width">
+                <h2>Top Packages by Mentions</h2>
+                <canvas id="packagesChart"></canvas>
+            </div>
+
+            <!-- Team Workload -->
+            <div class="chart-container full-width">
+                <h2>Team Workload Distribution</h2>
+                <canvas id="workloadChart"></canvas>
+            </div>
+
+            <!-- Issue Types -->
+            <div class="chart-container">
+                <h2>Issue Types</h2>
+                <canvas id="typeChart"></canvas>
+            </div>
+
+            <!-- Components -->
+            <div class="chart-container">
+                <h2>Top Components</h2>
+                <canvas id="componentChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Package Details Table -->
+        <section class="details-section">
+            <h2>Package Details</h2>
+            <table id="packageTable">
+                <thead>
+                    <tr>
+                        <th>Package</th>
+                        <th>Mentions</th>
+                        <th>Issues</th>
+                        <th>Sample Issues</th>
+                    </tr>
+                </thead>
+                <tbody id="packageTableBody">
+                    <tr><td colspan="4">Loading...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <footer>
+            <p>Data collected from Jira API | Updated automatically</p>
+        </footer>
+    </div>
+
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

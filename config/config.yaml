@@ -32,7 +32,7 @@ jira:
   # url: set via JIRA_URL environment variable
 
   # Projects to track (required for focused collection)
-  projects: ["PROJ", "DEV"]
+  projects: ["AIPCC"]
   
   # Include epic information
   include_epics: true
@@ -84,11 +84,14 @@ jira:
 # Google Drive Configuration
 gdrive:
   # Folders to monitor (get IDs from folder URLs)
-  folders:
-    - id: "YOUR_FOLDER_ID_1"
-      name: "Project Documents"
-    - id: "YOUR_FOLDER_ID_2"
-      name: "Team Shared"
+  # To find folder ID: open folder in Drive, copy ID from URL
+  # Example URL: https://drive.google.com/drive/folders/1a2b3c4d5e6f7g8h9i0
+  #              The ID is: 1a2b3c4d5e6f7g8h9i0
+  folders: []
+    # - id: "YOUR_FOLDER_ID_1"
+    #   name: "Project Documents"
+    # - id: "YOUR_FOLDER_ID_2"
+    #   name: "Team Shared"
   
   # File types to include (empty means all)
   file_types:
@@ -106,21 +109,21 @@ gdrive:
 # AI Configuration
 ai:
   # Provider: "vertex" (GCP Vertex AI), "anthropic" (direct), or "openai"
-  # For Red Hat/enterprise: Use "vertex" to access Claude through Google Cloud
   provider: "vertex"
 
   # Model to use
-  # For Vertex AI: "claude-3-5-sonnet@20241022" or "claude-3-opus@20240229"
-  # For Anthropic: "claude-3-5-sonnet-20241022" or "claude-3-opus-20240229"
-  # For OpenAI: "gpt-4-turbo-preview" or "gpt-4"
-  model: "claude-3-5-sonnet@20241022"
-
+  # For Vertex AI (us-east1): "claude-sonnet-4-6" (Claude Sonnet 4.6 - latest!)
+  # For Vertex AI (other regions): May need version with @date like "claude-3-5-sonnet@20241022"
+  # For Anthropic direct: "claude-3-5-sonnet-20241022"
+  # For OpenAI: "gpt-4-turbo-preview"
+  model: "claude-sonnet-4-6"
+  
   # Temperature (0.0-1.0, lower = more focused)
   temperature: 0.3
-
+  
   # Max tokens for response
   max_tokens: 4000
-
+  
   # Enable advanced analysis features
   enable_sentiment_analysis: false
   enable_trend_detection: false
