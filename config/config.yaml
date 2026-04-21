@@ -37,8 +37,8 @@ jira:
   # Include epic information
   include_epics: true
   
-  # Track sprint progress
-  track_sprints: true
+  # Track sprint progress (temporarily disabled - slow on large Jira instances)
+  track_sprints: false
 
   # Optional: Jira Software board IDs to query for active sprints (recommended for performance)
   # Specifying board IDs:

@@ -415,26 +415,14 @@ class JiraCollector:
             if remaining is not None:
                 page_limit = min(page_limit, remaining)
 
-            # Use enhanced_search_issues for Jira Cloud (v3.10+)
-            # Falls back to search_issues if enhanced method not available
-            try:
-                if hasattr(self.jira, 'enhanced_search_issues'):
-                    batch = self.jira.enhanced_search_issues(
-                        jql,
-                        start_at=start_at,
-                        max_results=page_limit,
-                        fields=fields,
-                    )
-                else:
-                    batch = self.jira.search_issues(
-                        jql,
-                        startAt=start_at,
-                        maxResults=page_limit,
-                        fields=fields,
-                    )
-            except Exception as e:
-                self.logger.error(f"Error searching issues: {e}")
-                break
+            # Use jql_search or search_issues
+            # Note: jira 3.10+ recommends jql_search but search_issues still works
+            batch = self.jira.search_issues(
+                jql,
+                startAt=start_at,
+                maxResults=page_limit,
+                fields=fields,
+            )
 
             if not batch:
                 break
