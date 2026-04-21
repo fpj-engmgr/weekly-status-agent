@@ -296,9 +296,11 @@ class JiraCollector:
         comments = []
         if self.include_comments and hasattr(fields, 'comment'):
             for comment in fields.comment.comments[-self.max_comments_per_issue:]:
+                # Convert body to string and truncate (handle PropertyHolder type)
+                body_str = str(comment.body) if comment.body else ""
                 comments.append({
                     'author': comment.author.displayName,
-                    'body': comment.body[:self.max_comment_length],
+                    'body': body_str[:self.max_comment_length],
                     'created': comment.created
                 })
         
@@ -316,10 +318,16 @@ class JiraCollector:
         base_url = self.auth_manager.jira_url.rstrip('/')
         issue_url = f"{base_url}/browse/{issue.key}"
 
+        # Extract description and truncate (handle both string and PropertyHolder types)
+        description = ""
+        if fields.description:
+            desc_str = str(fields.description) if fields.description else ""
+            description = desc_str[:self.max_description_length]
+
         return {
             'key': issue.key,
             'summary': fields.summary,
-            'description': fields.description[:self.max_description_length] if fields.description else "",
+            'description': description,
             'status': fields.status.name,
             'issue_type': fields.issuetype.name,
             'priority': fields.priority.name if hasattr(fields, 'priority') and fields.priority else "None",
@@ -401,8 +409,9 @@ class JiraCollector:
     def _search_issues_paginated(self, jql: str) -> List[Any]:
         """Run JQL search with pagination until all results are fetched or max_issues reached."""
         collected: List[Any] = []
-        start_at = 0
+        next_page_token = None
         fields = _SEARCH_FIELDS
+        page_num = 0
 
         while True:
             remaining = None
@@ -415,11 +424,10 @@ class JiraCollector:
             if remaining is not None:
                 page_limit = min(page_limit, remaining)
 
-            # Use jql_search or search_issues
-            # Note: jira 3.10+ recommends jql_search but search_issues still works
-            batch = self.jira.search_issues(
+            # Use enhanced_search_issues (Jira Cloud API with token-based pagination)
+            batch = self.jira.enhanced_search_issues(
                 jql,
-                startAt=start_at,
+                nextPageToken=next_page_token,
                 maxResults=page_limit,
                 fields=fields,
             )
@@ -428,9 +436,10 @@ class JiraCollector:
                 break
 
             collected.extend(batch)
+            page_num += 1
             self.logger.debug(
-                "Jira search page: startAt=%s got=%s total_so_far=%s",
-                start_at,
+                "Jira search page %d: got=%s total_so_far=%s",
+                page_num,
                 len(batch),
                 len(collected),
             )
@@ -439,10 +448,11 @@ class JiraCollector:
                 collected = collected[: self.max_issues]
                 break
 
-            if len(batch) < page_limit:
+            # Check if there are more pages using nextPageToken
+            if not hasattr(batch, 'nextPageToken') or not batch.nextPageToken:
                 break
 
-            start_at += len(batch)
+            next_page_token = batch.nextPageToken
 
         return collected
     

@@ -112,11 +112,11 @@ ai:
   provider: "vertex"
 
   # Model to use
-  # For Vertex AI (us-east1): "claude-sonnet-4-6" (Claude Sonnet 4.6 - latest!)
-  # For Vertex AI (other regions): May need version with @date like "claude-3-5-sonnet@20241022"
+  # For Vertex AI (us-east1): "claude-haiku-4-5", "claude-sonnet-4-5", or "claude-sonnet-4-6"
+  # Haiku is faster and cheaper, good for testing
   # For Anthropic direct: "claude-3-5-sonnet-20241022"
   # For OpenAI: "gpt-4-turbo-preview"
-  model: "claude-sonnet-4-6"
+  model: "claude-haiku-4-5"
   
   # Temperature (0.0-1.0, lower = more focused)
   temperature: 0.3
