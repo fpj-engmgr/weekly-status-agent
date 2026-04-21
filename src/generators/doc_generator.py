@@ -209,7 +209,74 @@ class DocGenerator:
         if sprint_summary:
             add_text("Sprint Summary\n", 'heading2')
             add_text(f"{sprint_summary}\n\n")
-        
+
+        # GitLab Merge Request Activity
+        gitlab_activity = analysis.get('gitlab_activity', {})
+        if gitlab_activity and (gitlab_activity.get('merged_count', 0) > 0 or
+                                gitlab_activity.get('open_count', 0) > 0 or
+                                gitlab_activity.get('highlights') or
+                                gitlab_activity.get('ready_for_review') or
+                                gitlab_activity.get('stale_mrs')):
+            add_text("Code Review Activity (GitLab)\n", 'heading1')
+
+            # Summary stats
+            merged_count = gitlab_activity.get('merged_count', 0)
+            open_count = gitlab_activity.get('open_count', 0)
+            if merged_count > 0 or open_count > 0:
+                add_text(f"Merged: {merged_count} MRs  |  Open: {open_count} MRs\n\n")
+
+            # Merged highlights
+            highlights = gitlab_activity.get('highlights', [])
+            if highlights:
+                add_text("Merged This Period\n", 'heading2')
+                for mr in highlights:
+                    mr_id = mr.get('mr_id', '!')
+                    title = mr.get('title', 'Untitled')
+                    project = mr.get('project', '')
+                    add_text(f"• {mr_id}: {title}")
+                    if project:
+                        add_text(f"\n  Project: {project}")
+                    if mr.get('significance'):
+                        add_text(f"\n  {mr.get('significance')}")
+                    add_text("\n")
+                add_text("\n")
+
+            # Ready for review
+            ready = gitlab_activity.get('ready_for_review', [])
+            if ready:
+                add_text("Ready for Review\n", 'heading2')
+                for mr in ready:
+                    mr_id = mr.get('mr_id', '!')
+                    title = mr.get('title', 'Untitled')
+                    project = mr.get('project', '')
+                    age_days = mr.get('age_days', 0)
+                    add_text(f"• {mr_id}: {title}")
+                    if project:
+                        add_text(f"\n  Project: {project}")
+                    if age_days:
+                        add_text(f" | Age: {age_days} days")
+                    add_text("\n")
+                add_text("\n")
+
+            # Stale MRs
+            stale = gitlab_activity.get('stale_mrs', [])
+            if stale:
+                add_text("Needs Attention\n", 'heading2')
+                for mr in stale:
+                    mr_id = mr.get('mr_id', '!')
+                    title = mr.get('title', 'Untitled')
+                    project = mr.get('project', '')
+                    days_open = mr.get('days_open', 0)
+                    add_text(f"⚠ {mr_id}: {title}")
+                    if project:
+                        add_text(f"\n  Project: {project}")
+                    if days_open:
+                        add_text(f" | Open for {days_open} days")
+                    if mr.get('concern'):
+                        add_text(f"\n  {mr.get('concern')}")
+                    add_text("\n")
+                add_text("\n")
+
         # Document Activity
         add_text("Document Activity\n", 'heading1')
         doc_activity = analysis.get('document_activity', {})

@@ -109,6 +109,64 @@ gdrive:
   # Lookback days for file modifications
   lookback_days: 7
 
+# GitLab Configuration
+gitlab:
+  # GitLab instance URL (defaults to https://gitlab.com)
+  # For self-hosted: set GITLAB_URL in .env
+  # url: set via GITLAB_URL environment variable
+
+  # GitLab personal access token (required)
+  # Create at: GitLab → Preferences → Access Tokens
+  # Required scopes: read_api, read_repository
+  # token: set via GITLAB_TOKEN environment variable
+
+  # Explicit projects to track (exact project paths or IDs)
+  # Example: ["my-group/my-project", "12345678"]
+  projects: []
+
+  # Project prefixes (includes ALL subprojects under these paths)
+  # Example: ["redhat/rhel-ai/core"] includes:
+  #   - redhat/rhel-ai/core/tools/project1
+  #   - redhat/rhel-ai/core/mirrors/project2
+  #   - redhat/rhel-ai/core/anything/else
+  # This is useful for tracking entire organizations or groups
+  project_prefixes:
+    - "my-org/team"
+
+  # MR states to include
+  states:
+    - "opened"   # Currently open MRs
+    - "merged"   # MRs merged in period
+    # - "closed" # MRs closed without merging
+
+  # Include draft/WIP merge requests
+  include_drafts: false
+
+  # Include pipeline status
+  include_pipelines: true
+
+  # Include approval details
+  include_approvals: true
+
+  # Number of days to look back
+  lookback_days: 7
+
+  # Maximum MRs per project (prevents overload)
+  max_mrs_per_project: 50
+
+  # Configurable data limits (manage token usage)
+  max_comments_per_mr: 5
+  max_comment_length: 500
+  max_description_length: 1000
+
+  # Filter by labels (optional, empty = all)
+  labels: []
+  # Example: ["backend", "frontend", "bug-fix"]
+
+  # Filter by authors (optional, empty = all)
+  authors: []
+  # Example: ["username1", "username2"]
+
 # AI Configuration
 ai:
   # Provider: "vertex" (GCP Vertex AI), "anthropic" (direct), or "openai"

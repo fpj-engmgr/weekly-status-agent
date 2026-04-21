@@ -85,6 +85,54 @@ jira:
   # Issues per bulk changelog request (max 1000)
   bulk_changelog_chunk_size: 1000
 
+# GitLab Configuration
+gitlab:
+  # GitLab instance URL (set in .env for security, or override here)
+  # url: set via GITLAB_URL environment variable (defaults to https://gitlab.com)
+  # token: set via GITLAB_TOKEN environment variable
+
+  # Projects to track (use project ID or namespace/project format)
+  # Example: ["12345678"] or ["my-group/my-project"]
+  projects: []
+
+  # Project prefixes to track (includes all subprojects under these paths)
+  # Example: ["redhat/rhel-ai/core"] will include all projects under that namespace
+  # like "redhat/rhel-ai/core/tools/...", "redhat/rhel-ai/core/mirrors/...", etc.
+  project_prefixes:
+    - "redhat/rhel-ai/core"
+
+  # MR states to include
+  states:
+    - "opened"  # Currently open MRs
+    - "merged"  # MRs merged in period
+    # - "closed"  # MRs closed without merging
+
+  # Include draft/WIP merge requests
+  include_drafts: false
+
+  # Include pipeline status
+  include_pipelines: true
+
+  # Include approval details
+  include_approvals: true
+
+  # Number of days to look back
+  lookback_days: 7
+
+  # Maximum MRs per project
+  max_mrs_per_project: 50
+
+  # Configurable data limits
+  max_comments_per_mr: 5
+  max_comment_length: 500
+  max_description_length: 1000
+
+  # Filter by labels (optional, empty = all)
+  labels: []
+
+  # Filter by authors (optional, empty = all)
+  authors: []
+
 # Google Drive Configuration
 gdrive:
   # Folders to monitor (get IDs from folder URLs)

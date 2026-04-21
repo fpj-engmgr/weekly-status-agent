@@ -2,7 +2,8 @@
 """Quick test of Jira collection + Claude Sonnet 4.6 analysis."""
 
 import sys
-sys.path.insert(0, 'src')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from utils import load_env_vars, get_date_range
 from collectors.jira_collector import JiraCollector

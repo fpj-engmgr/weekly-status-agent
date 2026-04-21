@@ -45,6 +45,7 @@ def generate_report(config: dict, test_mode: bool = False, dry_run: bool = False
     """
     from collectors.gmail_collector import GmailCollector
     from collectors.jira_collector import JiraCollector
+    from collectors.gitlab_collector import GitLabCollector
     from collectors.gdrive_collector import GDriveCollector
     from processors.data_processor import DataProcessor
     from ai.summarizer import AISummarizer
@@ -65,6 +66,16 @@ def generate_report(config: dict, test_mode: bool = False, dry_run: bool = False
         logger.info("Initializing data collectors...")
         gmail_collector = GmailCollector(config.get("gmail", {}))
         jira_collector = JiraCollector(config.get("jira", {}))
+
+        # GitLab collector (optional - skip if no config or no token)
+        gitlab_collector = None
+        gitlab_config = config.get("gitlab", {})
+        if gitlab_config and (gitlab_config.get("projects") or gitlab_config.get("project_prefixes")):
+            try:
+                gitlab_collector = GitLabCollector(gitlab_config)
+            except ValueError as e:
+                logger.warning(f"GitLab collector not initialized: {e}")
+
         gdrive_collector = GDriveCollector(config.get("gdrive", {}))
         
         # Collect data
@@ -75,18 +86,26 @@ def generate_report(config: dict, test_mode: bool = False, dry_run: bool = False
         logger.info("Collecting Jira data...")
         jira_data = jira_collector.collect(start_date, end_date)
         logger.info(f"Collected {len(jira_data)} Jira issues")
-        
+
+        # Collect GitLab data if collector was initialized
+        gitlab_data = []
+        if gitlab_collector:
+            logger.info("Collecting GitLab data...")
+            gitlab_data = gitlab_collector.collect(start_date, end_date)
+            logger.info(f"Collected {len(gitlab_data)} GitLab MRs")
+
         logger.info("Collecting Google Drive data...")
         gdrive_data = gdrive_collector.collect(start_date, end_date)
         logger.info(f"Collected {len(gdrive_data)} Drive file updates")
-        
+
         # Process data
         logger.info("Processing collected data...")
         processor = DataProcessor(config.get("database", {}))
         processed_data = processor.process(
             gmail_data=gmail_data,
             jira_data=jira_data,
-            gdrive_data=gdrive_data
+            gdrive_data=gdrive_data,
+            gitlab_data=gitlab_data
         )
         
         # AI Analysis

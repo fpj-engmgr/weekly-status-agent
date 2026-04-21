@@ -53,7 +53,17 @@ class DataProcessor:
                 processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS processed_gitlab_mrs (
+                project_id TEXT,
+                mr_iid INTEGER,
+                last_updated TIMESTAMP,
+                processed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (project_id, mr_iid)
+            )
+        ''')
+
         conn.commit()
         conn.close()
     
@@ -94,7 +104,56 @@ class DataProcessor:
         
         conn.commit()
         conn.close()
-    
+
+    def _is_gitlab_mr_processed(self, project_id: str, mr_iid: int, last_updated: str) -> bool:
+        """Check if GitLab MR has been processed before or has been updated.
+
+        Args:
+            project_id: GitLab project ID
+            mr_iid: MR number within project
+            last_updated: MR last updated timestamp
+
+        Returns:
+            True if already processed and not updated, False otherwise
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            'SELECT last_updated FROM processed_gitlab_mrs WHERE project_id = ? AND mr_iid = ?',
+            (str(project_id), mr_iid)
+        )
+
+        result = cursor.fetchone()
+        conn.close()
+
+        if result is None:
+            return False
+
+        # If MR was updated since last processing, treat as new
+        return result[0] == last_updated
+
+    def _mark_gitlab_mr_processed(self, project_id: str, mr_iid: int, last_updated: str):
+        """Mark GitLab MR as processed.
+
+        Args:
+            project_id: GitLab project ID
+            mr_iid: MR number within project
+            last_updated: MR last updated timestamp
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            '''INSERT OR REPLACE INTO processed_gitlab_mrs
+               (project_id, mr_iid, last_updated, processed_date)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)''',
+            (str(project_id), mr_iid, last_updated)
+        )
+
+        conn.commit()
+        conn.close()
+
     def _normalize_email_data(self, emails: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Normalize and categorize email data.
         
@@ -269,7 +328,87 @@ class DataProcessor:
                     categorized['recently_modified'].append(file)
         
         return categorized
-    
+
+    def _normalize_gitlab_data(self, mrs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalize and categorize GitLab merge request data.
+
+        Args:
+            mrs: List of merge request dictionaries
+
+        Returns:
+            Normalized GitLab MR data structure
+        """
+        # Filter out already processed MRs (or those updated since last process)
+        new_mrs = [
+            mr for mr in mrs
+            if not self._is_gitlab_mr_processed(
+                mr['project_id'],
+                mr['mr_iid'],
+                mr['updated_at']
+            )
+        ]
+
+        # Mark as processed
+        for mr in new_mrs:
+            self._mark_gitlab_mr_processed(
+                mr['project_id'],
+                mr['mr_iid'],
+                mr['updated_at']
+            )
+
+        # Categorize MRs
+        categorized = {
+            'total_count': len(new_mrs),
+            'by_state': {},
+            'by_project': {},
+            'by_author': {},
+            'merged_this_period': [],
+            'ready_for_review': [],
+            'needs_approval': [],
+            'stale_mrs': [],
+            'all_mrs': new_mrs
+        }
+
+        for mr in new_mrs:
+            # Group by state
+            state = mr.get('state', 'unknown')
+            if state not in categorized['by_state']:
+                categorized['by_state'][state] = []
+            categorized['by_state'][state].append(mr)
+
+            # Group by project
+            project = mr.get('project_name', 'Unknown')
+            if project not in categorized['by_project']:
+                categorized['by_project'][project] = []
+            categorized['by_project'][project].append(mr)
+
+            # Group by author
+            author = mr.get('author', 'Unknown')
+            if author not in categorized['by_author']:
+                categorized['by_author'][author] = []
+            categorized['by_author'][author].append(mr)
+
+            # Merged this period
+            if state == 'merged':
+                categorized['merged_this_period'].append(mr)
+
+            # Ready for review (open, not draft, has pipeline passing)
+            if (state == 'opened' and
+                not mr.get('draft', False) and
+                mr.get('pipeline_status') in ['success', 'manual', None]):
+                categorized['ready_for_review'].append(mr)
+
+            # Needs approval (open, not approved)
+            if state == 'opened' and not mr.get('approved', False):
+                categorized['needs_approval'].append(mr)
+
+            # Stale MRs (open for more than 14 days)
+            age_days = mr.get('age_days')
+            if age_days and age_days > 14:
+                categorized['stale_mrs'].append(mr)
+
+        return categorized
+
     def _get_file_type_label(self, mime_type: str) -> str:
         """Get human-readable label for MIME type.
         
@@ -291,29 +430,37 @@ class DataProcessor:
         
         return type_map.get(mime_type, 'Other')
     
-    def process(self, gmail_data: List[Dict[str, Any]], 
-                jira_data: List[Dict[str, Any]], 
-                gdrive_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def process(self, gmail_data: List[Dict[str, Any]],
+                jira_data: List[Dict[str, Any]],
+                gdrive_data: List[Dict[str, Any]],
+                gitlab_data: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Process and normalize all collected data.
-        
+
         Args:
             gmail_data: Raw Gmail data
             jira_data: Raw Jira data
             gdrive_data: Raw Google Drive data
-            
+            gitlab_data: Raw GitLab MR data (optional)
+
         Returns:
             Normalized and structured data dictionary
         """
         self.logger.info("Processing collected data")
-        
+
+        # Handle optional GitLab data
+        if gitlab_data is None:
+            gitlab_data = []
+
         processed = {
             'gmail': self._normalize_email_data(gmail_data),
             'jira': self._normalize_jira_data(jira_data),
             'gdrive': self._normalize_gdrive_data(gdrive_data),
+            'gitlab': self._normalize_gitlab_data(gitlab_data),
             'summary': {
                 'total_emails': len(gmail_data),
                 'total_jira_issues': len([i for i in jira_data if i.get('metadata_type') != 'sprints']),
-                'total_drive_files': len(gdrive_data)
+                'total_drive_files': len(gdrive_data),
+                'total_gitlab_mrs': len(gitlab_data)
             }
         }
         

@@ -72,7 +72,8 @@ class AISummarizer:
         gmail_summary = data['gmail']
         jira_summary = data['jira']
         gdrive_summary = data['gdrive']
-        
+        gitlab_summary = data.get('gitlab', {'total_count': 0, 'all_mrs': []})
+
         prompt = f"""You are an executive assistant analyzing weekly work activity for a status report.
 
 Report Period: {start_str} to {end_str}
@@ -80,6 +81,7 @@ Report Period: {start_str} to {end_str}
 DATA SUMMARY:
 - Emails: {gmail_summary['total_count']} new emails
 - Jira Issues: {jira_summary['total_count']} issues with activity
+- GitLab MRs: {gitlab_summary['total_count']} merge requests with activity
 - Google Drive: {gdrive_summary['total_count']} files modified
 
 GMAIL DATA:
@@ -99,6 +101,17 @@ By Priority: {dict([(k, len(v)) for k, v in jira_summary['by_priority'].items()]
 
 Issue Details:
 {self._format_jira_for_prompt(jira_summary['all_issues'][:30])}
+
+GITLAB MERGE REQUEST DATA:
+Total MRs: {gitlab_summary['total_count']}
+Merged This Period: {len(gitlab_summary.get('merged_this_period', []))}
+Currently Open: {len(gitlab_summary.get('by_state', {}).get('opened', []))}
+Ready for Review: {len(gitlab_summary.get('ready_for_review', []))}
+Stale MRs (>14 days): {len(gitlab_summary.get('stale_mrs', []))}
+By Project: {dict([(k, len(v)) for k, v in gitlab_summary.get('by_project', {}).items()])}
+
+MR Details:
+{self._format_gitlab_for_prompt(gitlab_summary.get('all_mrs', [])[:30])}
 
 GOOGLE DRIVE DATA:
 Total Files: {gdrive_summary['total_count']}
@@ -128,12 +141,18 @@ Analyze this weekly work activity and generate a comprehensive status report wit
    - Blockers or concerns identified
    - Sprint progress if applicable
 
-4. DOCUMENT ACTIVITY (from Drive)
+4. CODE REVIEW ACTIVITY (from GitLab)
+   - Merge requests merged this period
+   - Open MRs ready for review
+   - Stale MRs needing attention
+   - Notable contributions or reviews
+
+5. DOCUMENT ACTIVITY (from Drive)
    - Important new documents
    - Significant updates to existing docs
    - Collaboration patterns observed
 
-5. ACTION ITEMS & NEXT STEPS
+6. ACTION ITEMS & NEXT STEPS
    - Pending action items
    - Follow-ups required
    - Recommended priorities for next week
@@ -160,6 +179,19 @@ FORMAT YOUR RESPONSE AS JSON:
     "blockers": ["..."],
     "sprint_summary": "..."
   }},
+  "gitlab_activity": {{
+    "merged_count": 0,
+    "open_count": 0,
+    "highlights": [
+      {{"mr_id": "!123", "title": "...", "project": "...", "significance": "..."}}
+    ],
+    "ready_for_review": [
+      {{"mr_id": "!456", "title": "...", "project": "...", "age_days": 0}}
+    ],
+    "stale_mrs": [
+      {{"mr_id": "!789", "title": "...", "project": "...", "days_open": 0, "concern": "..."}}
+    ]
+  }},
   "document_activity": {{
     "new_documents": [
       {{"name": "...", "folder": "...", "significance": "..."}}
@@ -169,7 +201,7 @@ FORMAT YOUR RESPONSE AS JSON:
     ]
   }},
   "action_items": [
-    {{"item": "...", "priority": "high|medium|low", "source": "gmail|jira|gdrive"}}
+    {{"item": "...", "priority": "high|medium|low", "source": "gmail|jira|gitlab|gdrive"}}
   ],
   "recommendations": ["..."]
 }}
@@ -216,7 +248,51 @@ Ensure the analysis is insightful, focuses on meaningful work, and helps underst
             if issue.get('epic_name'):
                 formatted[-1] += f" | Epic: {issue.get('epic_name')}"
         return "\n".join(formatted)
-    
+
+    def _format_gitlab_for_prompt(self, mrs: list) -> str:
+        """Format GitLab merge requests for inclusion in prompt.
+
+        Args:
+            mrs: List of MR dictionaries
+
+        Returns:
+            Formatted string
+        """
+        if not mrs:
+            return "(No merge request activity)"
+
+        formatted = []
+        for mr in mrs[:20]:  # Limit to avoid token overflow
+            mr_id = f"!{mr.get('mr_iid')}"
+            title = mr.get('title', 'No title')
+            state = mr.get('state', 'unknown')
+            project = mr.get('project_name', 'Unknown').split('/')[-1]  # Show just last part of path
+
+            line = f"- {mr_id}: {title}\n"
+            line += f"  Project: {project} | State: {state}"
+
+            if state == 'merged':
+                merged_by = mr.get('merged_by', 'Unknown')
+                line += f" | Merged by: {merged_by}"
+                time_to_merge = mr.get('time_to_merge_hours')
+                if time_to_merge:
+                    line += f" | Time to merge: {time_to_merge:.1f}h"
+            elif state == 'opened':
+                age_days = mr.get('age_days', 0)
+                line += f" | Age: {age_days} days"
+                if mr.get('approved'):
+                    line += " | Approved ✓"
+                pipeline = mr.get('pipeline_status')
+                if pipeline:
+                    line += f" | Pipeline: {pipeline}"
+
+            author = mr.get('author', 'Unknown')
+            line += f"\n  Author: {author}"
+
+            formatted.append(line)
+
+        return "\n".join(formatted)
+
     def _format_gdrive_for_prompt(self, files: list) -> str:
         """Format Drive files for inclusion in prompt.
         

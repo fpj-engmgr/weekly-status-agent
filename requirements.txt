@@ -10,6 +10,9 @@ google-api-python-client==2.116.0
 # Jira
 jira==3.10.5  # Updated for API v3 /search/jql endpoint support
 
+# GitLab
+python-gitlab==4.4.0
+
 # AI/LLM
 anthropic[vertex]==0.96.0  # Includes Vertex AI support for GCP
 openai==1.12.0
