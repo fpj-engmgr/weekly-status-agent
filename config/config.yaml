@@ -33,6 +33,10 @@ jira:
 
   # Projects to track (required for focused collection)
   projects: ["AIPCC"]
+
+  # Components to filter (optional - empty list means all components)
+  # Use exact component names from Jira
+  components: []
   
   # Include epic information
   include_epics: true

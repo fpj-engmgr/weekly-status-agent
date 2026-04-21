@@ -172,6 +172,7 @@ Key configuration options in `config.yaml`:
 
 ### Jira
 - **projects**: Jira projects to track (e.g., ["PROJ", "DEV"])
+- **components**: Component names to filter (e.g., ["Backend", "API"]) - empty list means all components
 - **issue_types**: Issue types to include (e.g., ["Story", "Task", "Bug", "Epic"])
 - **custom_jql**: Optional custom JQL filter
 - **board_ids**: Optional board IDs for faster sprint tracking (recommended)
@@ -472,6 +473,15 @@ jira:
   max_comment_length: 1000
   max_description_length: 2000
   custom_jql: "assignee = currentUser()"
+```
+
+**Component-filtered Jira setup:**
+```yaml
+jira:
+  projects: ["PROJ"]
+  components: ["Backend", "API", "Database"]  # Only issues with these components
+  issue_types: ["Story", "Task", "Bug"]
+  max_issues: 200
 ```
 
 ### Troubleshooting Commands

@@ -43,6 +43,7 @@ class JiraCollector:
         self.jira = self.auth_manager.get_jira_client()
 
         self.projects = config.get("projects", [])
+        self.components = config.get("components", [])
         self.include_epics = config.get("include_epics", True)
         self.track_sprints = config.get("track_sprints", True)
         self.custom_jql = config.get("custom_jql", "")
@@ -77,10 +78,11 @@ class JiraCollector:
 
         # Log configuration summary for troubleshooting
         self.logger.debug(
-            "JiraCollector initialized: projects=%s, issue_types=%s, "
+            "JiraCollector initialized: projects=%s, components=%s, issue_types=%s, "
             "board_ids=%s, max_issues=%s, bulk_changelog=%s, "
             "max_comments=%s, max_comment_length=%s, max_description_length=%s",
             self.projects,
+            self.components,
             self.issue_types,
             self.board_ids,
             self.max_issues,
@@ -158,7 +160,12 @@ class JiraCollector:
         if self.issue_types:
             types_query = ", ".join([f'"{t}"' for t in self.issue_types])
             jql_parts.append(f"issuetype in ({types_query})")
-        
+
+        # Components
+        if self.components:
+            components_query = ", ".join([f'"{c}"' for c in self.components])
+            jql_parts.append(f"component in ({components_query})")
+
         # Custom JQL
         if self.custom_jql:
             jql_parts.append(f"({self.custom_jql})")

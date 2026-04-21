@@ -33,7 +33,13 @@ jira:
 
   # Projects to track (required for focused collection)
   projects: ["PROJ", "DEV"]
-  
+
+  # Components to filter (optional - empty list means all components)
+  # Use exact component names as they appear in Jira
+  # Example: ["Backend", "Frontend", "API", "Database"]
+  # Leave empty to include all components from the specified projects
+  components: []
+
   # Include epic information
   include_epics: true
   

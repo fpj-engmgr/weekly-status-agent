@@ -117,7 +117,8 @@ Required:
 ### Config Sections (`config/config.yaml`)
 - **schedule**: Day/time for automatic report generation
 - **gmail**: Labels to monitor, senders to include/exclude, lookback period
-- **jira**: Projects to track, custom JQL, sprint/epic settings, configurable data limits
+- **jira**: Projects to track, components to filter, custom JQL, sprint/epic settings, configurable data limits
+  - `components`: Optional list of component names to filter (empty = all components)
   - `max_comments_per_issue`: Number of comments per issue (default: 5)
   - `max_comment_length`: Character limit per comment (default: 500)
   - `max_description_length`: Character limit for issue descriptions (default: 1000)
@@ -251,11 +252,12 @@ after:YYYY/MM/DD before:YYYY/MM/DD
 **Limits**: `max_emails` (default 100) caps results
 
 ### Jira Collector
-**JQL Building**: Constructs query with projects, date range, issue types, custom JQL
+**JQL Building**: Constructs query with projects, date range, issue types, components, custom JQL
 ```sql
 project in (PROJ, DEV) 
 AND updated >= 'YYYY-MM-DD' AND updated <= 'YYYY-MM-DD'
 AND issuetype in ("Story", "Task", "Bug", "Epic")
+AND component in ("Backend", "API")
 ORDER BY updated DESC
 ```
 - Validates JQL length (<2000 chars) to prevent server rejections
