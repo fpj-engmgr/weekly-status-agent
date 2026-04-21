@@ -332,7 +332,7 @@ class GitLabCollector:
         # Comments (recent discussions)
         comments = []
         try:
-            discussions = mr.discussions.list(per_page=self.max_comments_per_mr)
+            discussions = mr.discussions.list(per_page=self.max_comments_per_mr, get_all=False)
             for discussion in discussions[:self.max_comments_per_mr]:
                 # Get the first note in each discussion thread
                 notes = discussion.attributes.get('notes', [])

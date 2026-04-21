@@ -99,7 +99,7 @@ gitlab:
   # Example: ["redhat/rhel-ai/core"] will include all projects under that namespace
   # like "redhat/rhel-ai/core/tools/...", "redhat/rhel-ai/core/mirrors/...", etc.
   project_prefixes:
-    - "redhat/rhel-ai/core"
+    - "redhat/rhel-ai/core/team-docs"
 
   # MR states to include
   states:
