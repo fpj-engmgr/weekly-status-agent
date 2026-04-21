@@ -131,21 +131,22 @@ ai:
 # Report Output Configuration
 output:
   # Google Drive folder ID for generated reports
-  drive_folder_id: "YOUR_OUTPUT_FOLDER_ID"
+  # Path: /Development/AIPCC-E/Status Updates
+  drive_folder_id: "17VEALruwtiNnlGzF7ZzRe_tHqAV3pHj7"
   
   # Report title format (supports date placeholders)
   title_format: "Weekly Status Report - {start_date} to {end_date}"
   
   # Share report with these email addresses
   share_with:
-    - "manager@company.com"
-  
+    - "fjansen@redhat.com"
+
   # Include raw data appendix
   include_raw_data: false
-  
+
   # Generate summary email
   send_email_notification: true
-  notification_email: "your-email@company.com"
+  notification_email: "fjansen@redhat.com"
 
 # Database Configuration
 database:
