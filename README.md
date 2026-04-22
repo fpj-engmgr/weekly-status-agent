@@ -1,10 +1,20 @@
 # Weekly Status Report Agent
 
-An automated Python agent that generates comprehensive weekly status reports by collecting and analyzing data from Gmail, Jira, and Google Drive.
+An automated Python agent that generates comprehensive weekly status reports by collecting and analyzing data from Gmail, Jira, GitLab, and Google Drive.
 
 ## Recent Improvements
 
-**Jira Collector Enhancements** (Latest):
+**GitLab Integration** (Latest):
+- ✅ **Merge Request Tracking**: Collect and analyze GitLab MRs across projects
+- ✅ **Project Prefix Matching**: Automatically include all subprojects under a namespace
+- ✅ **Code Review Insights**: Track merged MRs, open MRs, stale reviews, pipeline status
+- ✅ **Flexible Filtering**: Filter by state, labels, authors, include/exclude drafts
+- ✅ **Smart Deduplication**: Tracks processed MRs to avoid duplicate reporting
+- ✅ **Configurable Data Limits**: Control comment counts and text lengths
+- ✅ **AI Analysis Integration**: GitLab activity included in weekly summaries
+
+**Jira Collector Enhancements**:
+- ✅ **Component Filtering**: Filter issues by Jira components
 - ✅ **Configurable Data Limits**: Control comment counts and text lengths via config
 - ✅ **Performance Metrics**: See collection time and items/sec in logs
 - ✅ **Progress Tracking**: Get updates during large collections (>20 issues)
@@ -12,13 +22,17 @@ An automated Python agent that generates comprehensive weekly status reports by 
 - ✅ **Enhanced Error Logging**: Stack traces with issue context for easier debugging
 - ✅ **Configuration Validation**: Warns about missing or invalid settings on startup
 - ✅ **JQL Validation**: Checks query length to prevent server rejections
-- ✅ **Robust Error Handling**: No more silent failures, all errors logged with context
+
+**AI Improvements**:
+- ✅ **Increased Token Limit**: Default max_tokens increased to 8000 for complete responses
+- ✅ **Better Error Handling**: Graceful fallback when JSON parsing fails
 
 See [CLAUDE.md](CLAUDE.md) for detailed implementation notes.
 
 ## Features
 
-- **Automated Data Collection**: Fetches emails, Jira issues, and Drive file changes from the past week
+- **Automated Data Collection**: Fetches emails, Jira issues, GitLab MRs, and Drive file changes from the past week
+- **GitLab Integration**: Track merge requests with project prefix matching, pipeline status, approvals, and code review activity
 - **AI-Powered Analysis**: Uses LLM (Claude/GPT-4) to summarize and categorize information
 - **Google Docs Output**: Generates beautifully formatted reports as Google Docs
 - **Scheduled Execution**: Runs automatically on a weekly schedule
@@ -30,7 +44,7 @@ See [CLAUDE.md](CLAUDE.md) for detailed implementation notes.
 ## Architecture
 
 The agent follows a modular pipeline architecture:
-1. **Collectors**: Fetch data from Gmail, Jira, and Google Drive APIs
+1. **Collectors**: Fetch data from Gmail, Jira, GitLab, and Google Drive APIs
 2. **Processor**: Normalizes and structures collected data
 3. **AI Analyzer**: Summarizes and extracts insights using LLM
 4. **Generator**: Creates formatted Google Doc report
@@ -78,7 +92,19 @@ ANTHROPIC_API_KEY=your-anthropic-key
 # OPENAI_API_KEY=your-openai-key
 ```
 
-### 4. Configure Settings
+### 4. Configure GitLab Access (Optional)
+
+1. Generate GitLab personal access token with `read_api` scope
+2. Add to `.env` file:
+
+```bash
+GITLAB_URL=https://gitlab.com  # Or your self-hosted GitLab instance
+GITLAB_TOKEN=your-gitlab-token
+```
+
+Note: GitLab integration is optional. If not configured, the agent will skip GitLab collection and continue with other data sources.
+
+### 5. Configure Settings
 
 Copy and customize the configuration:
 
@@ -188,16 +214,35 @@ Adjust these to balance detail vs. performance:
 - **Increase** for detailed analysis (more context for AI)
 - **Decrease** for high-volume tracking (faster collection, lower token usage)
 
+### GitLab
+- **projects**: List of project IDs or paths (e.g., ["12345", "group/project"])
+- **project_prefixes**: Namespace prefixes to match all subprojects (e.g., ["company/team"])
+- **states**: MR states to include (e.g., ["opened", "merged", "closed"])
+- **include_drafts**: Include draft/WIP merge requests (default: false)
+- **include_pipelines**: Include CI/CD pipeline status (default: true)
+- **include_approvals**: Include approval details (default: true)
+- **lookback_days**: Number of days to look back (default: 7)
+- **max_mrs_per_project**: Maximum MRs per project (default: 50)
+- **labels**: Filter by labels (empty for all)
+- **authors**: Filter by authors (empty for all)
+
+**Configurable Data Limits**:
+- **max_comments_per_mr**: Number of recent comments per MR (default: 5)
+- **max_comment_length**: Character limit per comment (default: 500)
+- **max_description_length**: Character limit for MR descriptions (default: 1000)
+
+**Note**: You can specify either `projects` (explicit list) or `project_prefixes` (pattern matching) or both. Project prefixes automatically include all subprojects under that namespace.
+
 ### Google Drive
 - **folders**: List of folder IDs to monitor
 - **file_types**: Mime types to include (empty for all)
 - **lookback_days**: Number of days to look back (default: 7)
 
 ### AI
-- **provider**: "anthropic" or "openai"
-- **model**: Model name (e.g., "claude-3-5-sonnet-20241022")
+- **provider**: "anthropic" or "openai" or "vertex" (GCP Vertex AI)
+- **model**: Model name (e.g., "claude-haiku-4-5", "claude-sonnet-4-5")
 - **temperature**: 0.0-1.0 (lower = more focused, default: 0.3)
-- **max_tokens**: Maximum response tokens (default: 4000)
+- **max_tokens**: Maximum response tokens (default: 8000)
 
 ### Output
 - **drive_folder_id**: Google Drive folder for generated reports
@@ -443,7 +488,7 @@ Watch for these log messages to identify bottlenecks:
 - Multi-user support
 - Template customization UI
 - Webhook support for real-time updates
-- Additional collectors (GitHub, Confluence, Slack)
+- Additional collectors (GitHub, Confluence)
 
 ## Quick Reference
 
@@ -484,6 +529,29 @@ jira:
   max_issues: 200
 ```
 
+**GitLab setup with project prefixes:**
+```yaml
+gitlab:
+  project_prefixes:
+    - "company/team/core"  # Includes all subprojects
+  states: ["opened", "merged"]
+  include_drafts: false
+  include_pipelines: true
+  include_approvals: true
+  max_mrs_per_project: 50
+```
+
+**GitLab setup with explicit projects:**
+```yaml
+gitlab:
+  projects:
+    - "12345678"  # Project ID
+    - "my-group/my-project"  # Or full path
+  states: ["opened", "merged"]
+  labels: ["release", "hotfix"]
+  authors: ["username1", "username2"]
+```
+
 ### Troubleshooting Commands
 
 ```bash
@@ -518,6 +586,10 @@ JIRA_API_TOKEN=your-api-token
 ANTHROPIC_API_KEY=your-anthropic-key
 # OR
 OPENAI_API_KEY=your-openai-key
+
+# Optional: GitLab
+GITLAB_URL=https://gitlab.com  # Or your self-hosted instance
+GITLAB_TOKEN=your-gitlab-token
 ```
 
 ## License

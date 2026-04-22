@@ -174,7 +174,7 @@ ai:
   temperature: 0.3
   
   # Max tokens for response
-  max_tokens: 4000
+  max_tokens: 8000
   
   # Enable advanced analysis features
   enable_sentiment_analysis: false

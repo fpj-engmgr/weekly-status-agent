@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Weekly Status Report Agent - An automated Python tool that collects data from Gmail, Jira, and Google Drive, analyzes it with AI, and generates weekly status reports as Google Docs.
+Weekly Status Report Agent - An automated Python tool that collects data from Gmail, Jira, GitLab, and Google Drive, analyzes it with AI, and generates weekly status reports as Google Docs.
 
 ## Essential Commands
 
@@ -63,6 +63,7 @@ The agent follows a **5-stage pipeline architecture**:
 Fetch raw data from external APIs:
 - **GmailCollector**: Fetches emails via Gmail API, filters by labels/senders
 - **JiraCollector**: Queries Jira issues using JQL, tracks sprints/epics
+- **GitLabCollector**: Collects merge requests with project prefix matching, approvals, pipeline status
 - **GDriveCollector**: Monitors Google Drive folders for file changes
 
 Each collector returns a list of normalized dictionaries with consistent structure.
@@ -72,7 +73,7 @@ Each collector returns a list of normalized dictionaries with consistent structu
 - **Normalization**: Converts raw API responses to consistent internal format
 - **Categorization**: Groups data by sender/status/type/folder for analysis
 
-The processor prevents duplicate reporting by maintaining three tracking tables: `processed_emails`, `processed_jira_issues`, `processed_drive_files`.
+The processor prevents duplicate reporting by maintaining four tracking tables: `processed_emails`, `processed_jira_issues`, `processed_gitlab_mrs`, `processed_drive_files`.
 
 ### 3. AI Analyzer (`src/ai/summarizer.py`)
 - Sends processed data to LLM (Claude or GPT-4)
@@ -114,6 +115,10 @@ Required:
 - `JIRA_EMAIL` + `JIRA_API_TOKEN`: For Jira Cloud
 - `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`: LLM provider
 
+Optional:
+- `GITLAB_URL`: GitLab instance URL (defaults to https://gitlab.com)
+- `GITLAB_TOKEN`: GitLab personal access token with `read_api` scope
+
 ### Config Sections (`config/config.yaml`)
 - **schedule**: Day/time for automatic report generation
 - **gmail**: Labels to monitor, senders to include/exclude, lookback period
@@ -122,8 +127,15 @@ Required:
   - `max_comments_per_issue`: Number of comments per issue (default: 5)
   - `max_comment_length`: Character limit per comment (default: 500)
   - `max_description_length`: Character limit for issue descriptions (default: 1000)
+- **gitlab**: Projects and project prefixes to track, MR states, pipeline/approval settings
+  - `projects`: Explicit project IDs or paths
+  - `project_prefixes`: Namespace prefixes for automatic subproject inclusion
+  - `states`: MR states to include (opened, merged, closed)
+  - `max_comments_per_mr`: Number of comments per MR (default: 5)
+  - `max_comment_length`: Character limit per comment (default: 500)
+  - `max_description_length`: Character limit for MR descriptions (default: 1000)
 - **gdrive**: Folder IDs to monitor, file types to include
-- **ai**: Provider (anthropic/openai), model, temperature, max_tokens
+- **ai**: Provider (anthropic/openai/vertex), model, temperature, max_tokens (default: 8000)
 - **output**: Drive folder for reports, sharing recipients
 - **database**: SQLite path for deduplication tracking
 - **logging**: Log level, file path, rotation settings
@@ -136,7 +148,7 @@ External APIs → Collectors → Processor → AI Analyzer → Generator → Goo
                          SQLite DB (deduplication)
 ```
 
-1. Collectors fetch data from Gmail/Jira/Drive for specified date range
+1. Collectors fetch data from Gmail/Jira/GitLab/Drive for specified date range
 2. Processor normalizes data and filters out previously processed items
 3. AI Analyzer generates insights and summaries
 4. Generator creates formatted Google Doc and shares it
@@ -152,6 +164,7 @@ External APIs → Collectors → Processor → AI Analyzer → Generator → Goo
 ### Deduplication Strategy
 - Emails tracked by `message_id` (Gmail internal ID)
 - Jira issues tracked by `issue_key` and `last_updated` timestamp
+- GitLab MRs tracked by `(project_id, mr_iid, last_updated)` composite key
 - Drive files tracked by `file_id` and `last_modified` timestamp
 - Old entries cleaned up based on `database.retention_days`
 
@@ -173,27 +186,31 @@ Each collector/processor/generator can be tested independently. To add a new dat
 ## AI Analyzer Details
 
 ### Prompt Structure
-The AI analyzer (`src/ai/summarizer.py`) sends a structured prompt requesting JSON response with five sections:
+The AI analyzer (`src/ai/summarizer.py`) sends a structured prompt requesting JSON response with six sections:
 1. **executive_summary**: 2-3 paragraph overview
 2. **email_highlights**: themes, action_items, critical_messages
 3. **project_progress**: completed, in_progress, blockers, sprint_summary
-4. **document_activity**: new_documents, major_updates
-5. **action_items**: prioritized list (high/medium/low)
+4. **gitlab_activity**: merged_count, open_count, highlights, ready_for_review, stale_mrs
+5. **document_activity**: new_documents, major_updates
+6. **action_items**: prioritized list (high/medium/low)
 
 ### Token Management
 To avoid token overflow, formatters limit items sent to LLM:
 - Emails: First 15 with 150-char snippet
 - Jira issues: First 20 with configurable description limit (default: 1000 chars)
+- GitLab MRs: First 20 with configurable description limit (default: 1000 chars)
 - Drive files: First 20
-- Comments: Configurable count per issue (default: 5) with configurable length (default: 500 chars)
+- Comments: Configurable count per issue/MR (default: 5) with configurable length (default: 500 chars)
 
-These Jira limits can be adjusted in `config.yaml` under the `jira` section using `max_comments_per_issue`, `max_comment_length`, and `max_description_length`.
+These limits can be adjusted in `config.yaml` under `jira` and `gitlab` sections using `max_comments_per_issue`, `max_comment_length`, and `max_description_length`.
 
 ### Response Parsing
 - Expects JSON response from LLM
 - Automatically extracts JSON from markdown code blocks (```json...```)
-- Falls back to raw text if JSON parsing fails
+- Falls back to empty section structures if JSON parsing fails (preserves document structure)
+- Logs debug information (first/last 500 chars) when parsing fails
 - Adds metadata (timestamp, model, provider, data summary)
+- Default `max_tokens` is 8000 to ensure complete responses
 
 ## Document Generator Details
 
@@ -217,6 +234,10 @@ Report Period
 │   ├── Currently In Progress
 │   ├── Blockers & Concerns
 │   └── Sprint Summary
+├── Code Review Activity (GitLab)
+│   ├── Merged This Period
+│   ├── Ready for Review
+│   └── Stale MRs Needing Attention
 ├── Document Activity
 │   ├── New Documents
 │   └── Major Updates
@@ -293,6 +314,47 @@ ORDER BY updated DESC
 - Board name caching reduces redundant API calls
 - Enhanced error logging with stack traces and issue context (type, board name)
 
+### GitLab Collector
+**Project Resolution**: Supports two modes for identifying projects:
+1. **Explicit projects**: Direct project IDs or paths (e.g., `["12345", "group/project"]`)
+2. **Project prefixes**: Namespace patterns that match all subprojects (e.g., `["company/team"]`)
+
+**Prefix Matching** (`_resolve_projects_from_prefixes()`):
+- Fetches all accessible projects from GitLab API
+- Filters by prefix using `startswith()` pattern matching
+- Automatically includes all subprojects under the specified namespace
+- Example: `"redhat/rhel-ai/core/team-docs"` matches that project and all nested subprojects
+
+**MR Collection** (`_collect_project_mrs()`):
+- Token-based pagination for handling large MR lists
+- Filters by state (opened, merged, closed), date range, labels, authors
+- Optionally includes/excludes draft MRs
+- Configurable limit per project (`max_mrs_per_project`, default: 50)
+
+**Data Extraction** (`_extract_mr_data()`):
+- **Basic info**: MR IID, title, description (truncated to `max_description_length`)
+- **Approvals**: Fetches approval details if `include_approvals` enabled
+- **Comments**: Recent discussions limited to `max_comments_per_mr` (default: 5)
+- **Pipeline status**: CI/CD status if `include_pipelines` enabled
+- **Merge info**: Merged by, merge time for merged MRs
+- **Age calculation**: Days open/since merge for prioritization
+
+**Configurable Data Limits**:
+- `max_comments_per_mr`: Number of discussion threads (default: 5)
+- `max_comment_length`: Character limit per comment (default: 500)
+- `max_description_length`: Character limit for MR description (default: 1000)
+
+**Error Handling**:
+- Graceful fallback if GitLab token not configured (skips collection)
+- Handles GitLab API 502 errors by logging warning and continuing
+- Validates project access before attempting collection
+- Uses `get_all=False` to suppress pagination warnings
+
+**Performance**:
+- Only fetches specified projects or prefix-matched projects
+- Caches project list to avoid repeated API calls
+- Efficient pagination with token-based approach
+
 ## Scheduler Implementation
 
 **Library**: Uses `schedule` library (not APScheduler, despite it being in requirements.txt)
@@ -323,9 +385,12 @@ Key helpers in `src/utils.py`:
 
 - `tests/test_auth.py`: Validates Google OAuth and Jira authentication
 - `tests/test_processor.py`: Tests data normalization and deduplication
+- `tests/test_gitlab_access.py`: Tests GitLab authentication and lists accessible projects
+- `tests/test_gitlab_prefixes.py`: Tests project prefix matching to verify which projects are included
+- `tests/test_gitlab_integration.py`: End-to-end GitLab collection and processing test
 - Mock external APIs in tests to avoid real API calls
 - Use `--dry-run` flag for integration testing without document creation
-- `scripts/test_setup.py`: Validates environment variables and API connections
+- See `tests/README.md` for detailed test documentation
 
 ## Troubleshooting
 
@@ -338,13 +403,23 @@ Check logs for collector errors, verify config (labels/projects/folder IDs), ens
 ### Rate Limiting
 - Gmail: Reduce `max_emails`, increase `lookback_days` to batch fewer requests
 - Jira: Use `max_issues` cap, narrow JQL with `custom_jql`, specify `board_ids` for sprint tracking
+- GitLab: Reduce `max_mrs_per_project`, use specific `projects` instead of broad `project_prefixes`
 - Drive: Reduce number of monitored folders
+
+### GitLab Issues
+- **No MRs collected**: Verify `GITLAB_TOKEN` has `read_api` scope, check project access permissions
+- **502 Bad Gateway**: Temporary GitLab server error - agent logs warning and continues with other sources
+- **Too many projects matched**: Narrow `project_prefixes` to more specific namespace paths
+- **Missing MRs**: Check `states` filter (default: opened, merged), verify `lookback_days` covers the period
+- **Token not configured**: GitLab is optional - agent will skip collection if `GITLAB_TOKEN` not set
 
 ### AI Quality
 - Adjust `temperature` (lower = more focused, 0.0-1.0)
 - Modify prompt in `src/ai/summarizer.py` `_build_analysis_prompt()`
-- Try different model (Claude vs GPT-4)
-- Increase `max_tokens` if responses are truncated
+- Try different model (Claude Haiku/Sonnet, GPT-4, Vertex AI)
+- Increase `max_tokens` if responses are truncated (default: 8000)
+- Check logs for "Failed to parse LLM response" - indicates truncated or malformed JSON
+- If JSON parsing fails, response falls back to empty sections with error note
 
 ### Jira Bulk Changelog Fails
 If bulk changelog returns 404, agent falls back to per-issue `expand=changelog` (slower but works on Jira Server/DC). Check logs for "Bulk changelog fetch failed" message with stack trace for detailed error information.
@@ -374,7 +449,14 @@ Enable debug logging (`logging.level: DEBUG` in config) to see:
 - **Jira data limits**: Adjust `max_comments_per_issue`, `max_comment_length`, and `max_description_length` to balance detail vs. token usage
   - Increase limits for detailed analysis, decrease for high-volume issue tracking
   - Check debug logs for configuration summary on startup
+- **GitLab project selection**: 
+  - Use `project_prefixes` for automatic subproject inclusion (e.g., `"company/team"`)
+  - Use `projects` for explicit project list when you know exact paths/IDs
+  - Start with narrow prefixes, expand as needed to avoid matching too many projects
+  - Set `max_mrs_per_project` to limit collection per project
+- **GitLab data limits**: Similar to Jira - adjust `max_comments_per_mr`, `max_comment_length`, `max_description_length`
 - **Lookback period**: 7 days is optimal; longer periods = more API calls and larger LLM context
 - **Temperature**: 0.3 works well for factual summaries; increase to 0.5-0.7 for more creative analysis
+- **max_tokens**: Default 8000 provides complete responses; increase if dealing with very large data sets
 - **File types**: Limit `gdrive.file_types` to reduce noise in reports
 - **Configuration validation**: Enable debug logging to see configuration summary and catch misconfigurations early

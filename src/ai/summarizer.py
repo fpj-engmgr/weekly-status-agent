@@ -403,10 +403,17 @@ Ensure the analysis is insightful, focuses on meaningful work, and helps underst
             
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse LLM response as JSON: {str(e)}")
-            # Return a basic structure if parsing fails
+            self.logger.debug(f"Raw response (first 1000 chars): {response_text[:1000]}")
+            self.logger.debug(f"Raw response (last 500 chars): {response_text[-500:]}")
+            # Return a structure with empty sections so doc generator can still render
             return {
-                'executive_summary': response_text[:500],
-                'error': 'Failed to parse structured response',
+                'executive_summary': response_text[:500] + "\n\n(Note: AI response parsing failed. Showing truncated response. Increase max_tokens or check logs for details.)",
+                'email_highlights': {'themes': [], 'action_items': [], 'critical_messages': []},
+                'project_progress': {'completed': [], 'in_progress': [], 'blockers': [], 'sprint_summary': ''},
+                'gitlab_activity': {'merged_count': 0, 'open_count': 0, 'highlights': [], 'ready_for_review': [], 'stale_mrs': []},
+                'document_activity': {'new_documents': [], 'major_updates': []},
+                'action_items': {'high_priority': [], 'medium_priority': [], 'low_priority': []},
+                'error': f'Failed to parse structured response: {str(e)}',
                 'raw_response': response_text
             }
         except Exception as e:
