@@ -131,7 +131,18 @@ def generate_report(config: dict, test_mode: bool = False, dry_run: bool = False
             notification_email = config.get("output", {}).get("notification_email")
             if notification_email:
                 logger.info(f"Sending notification to {notification_email}")
-                # Email notification would be implemented here
+                try:
+                    from notifiers.email_notifier import EmailNotifier
+                    notifier = EmailNotifier()
+                    notifier.send_report_notification(
+                        recipient=notification_email,
+                        doc_url=doc_url,
+                        analysis=analysis,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send email notification: {e}", exc_info=True)
         
         return True
         
